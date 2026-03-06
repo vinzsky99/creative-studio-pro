@@ -1,0 +1,8 @@
+{
+  "name": "Creative Studio Pro",
+  "description": "An all-in-one AI-powered suite for stock contributors: image generation, metadata extraction, technical auditing, and market research.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
