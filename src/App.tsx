@@ -599,6 +599,9 @@ export default function App() {
   const [isExtractingQueue, setIsExtractingQueue] = useState(false);
   const [selectedAgency, setSelectedAgency] = useState('Adobe Stock');
   const [metaTargetExt, setMetaTargetExt] = useState('.jpg');
+  const [metaInstructions, setMetaInstructions] = useState('');
+  const [metaKeywords, setMetaKeywords] = useState('');
+  const [metaCategory, setMetaCategory] = useState('');
 
   const handleAddMetaFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(e.target.files || []);
@@ -640,12 +643,19 @@ export default function App() {
 
       let promptText = `Analyze for Microstock Contributor. Generate highly specific and UNIQUE metadata based strictly on the exact visual contents of this media. Pay attention to unique details, colors, objects, and composition to ensure descriptions and keywords are NOT generic. Output JSON EXACTLY matching this structure:
       {
-        "title": "A highly descriptive, concise title using exact visual elements (Max 5-7 words, no special chars)",
+        "title": "A highly descriptive, concise title using exact visual elements (Max 4-5 words, no special chars)",
         "description_id": "Satu kalimat deskripsi komersial utuh dan spesifik (Maksimal 150 karakter, tidak boleh lebih)",
         "description_en": "One complete specific commercial description (Maximum 150 characters, strict limit)",
         "keywords": "Exactly 30 highly relevant, specific, and unique comma-separated keywords in English (ALL LOWERCASE)",
-        "category": "Photo/Illustration/Video"
-      }`;
+        "category": "Adobe Stock Category Name"
+      }
+      
+      IMPORTANT INSTRUCTIONS:
+      1. Title MUST be 4-5 words only.
+      2. If manual instructions are provided, prioritize them: ${metaInstructions || 'None'}
+      3. If specific keywords are requested, include them: ${metaKeywords || 'None'}
+      4. If a category is requested, use it or find the best match from this list: ${metaCategory || 'animal, building and architecture, business, drinks, the enviroment, state of mind, food, graphic resources, hobbies, industry, lanscapes, lifestyle, people, plant and folwers, culture and religion, science, social issues, sport, technology, transport, travel'}.
+      5. Ensure the category returned is one of the standard Adobe Stock categories.`;
       if (isVectorMock) promptText += `\n\nCatatan: Karena file adalah format sumber (.eps/.ai/.psd) bernama "${item.name}", buatlah deskripsi dan keyword terbaik yang sangat relevan berdasarkan nama file tersebut secara unik.`;
 
       const contents = [{ parts: [{ text: promptText }, { inlineData: { mimeType: item.file.type.includes('svg') || isVectorMock ? 'text/plain' : 'image/jpeg', data: base64Data } }] }];
@@ -655,7 +665,7 @@ export default function App() {
       const json = extractCleanJSON(response.text);
       
       let rawTitle = json.title || json.description_en || item.name.split('.')[0] || 'stock-media';
-      let cleanFilename = (rawTitle || '').toString().toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().split(/\s+/).slice(0, 7).join('-');
+      let cleanFilename = (rawTitle || '').toString().toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().split(/\s+/).slice(0, 5).join('-');
       if (cleanFilename.endsWith('-')) cleanFilename = cleanFilename.slice(0, -1);
       if (!cleanFilename) cleanFilename = "untitled-asset";
 
@@ -1307,6 +1317,59 @@ export default function App() {
                 </div>
 
                 <div className="pt-6 space-y-4">
+                  <div className="space-y-4 bg-slate-950/50 p-5 rounded-3xl border border-slate-800 shadow-inner">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em]">SEO Configuration</h3>
+                      <button onClick={() => { setMetaInstructions(''); setMetaKeywords(''); setMetaCategory(''); }} className="text-[9px] font-bold text-red-500/50 hover:text-red-500 transition-colors uppercase">Clear All</button>
+                    </div>
+                    
+                    <div className="space-y-2">
+                       <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center justify-between">
+                         <span>Instructions</span>
+                         <button onClick={async () => {
+                            if(metaQueue.length === 0) return;
+                            setIsExtractingQueue(true);
+                            try {
+                              const item = metaQueue[0];
+                              let base64Data = "";
+                              if (item.type === 'video') {
+                                 const thumbDataUrl = await generateVideoThumbnail(item.file);
+                                 base64Data = thumbDataUrl.split(',')[1] || "";
+                              } else if (item.type === 'image' && item.file.type.includes('svg')) { base64Data = btoa(await item.file.text()); } 
+                              else { base64Data = await new Promise((res) => { const r = new FileReader(); r.onloadend = () => res((r.result as string).split(',')[1]); r.readAsDataURL(item.file); }); }
+                              
+                              const contents = [{ parts: [{ text: "Suggest the best Adobe Stock SEO instructions, keywords, and category for this image. Output JSON: { \"instructions\": \"...\", \"keywords\": \"...\", \"category\": \"...\" }" }, { inlineData: { mimeType: 'image/jpeg', data: base64Data } }] }];
+                              const response = await callGeminiSDK("gemini-3-flash-preview", contents, { responseMimeType: "application/json" });
+                              const json = extractCleanJSON(response.text);
+                              if(json.instructions) setMetaInstructions(json.instructions);
+                              if(json.keywords) setMetaKeywords(json.keywords);
+                              if(json.category) setMetaCategory(json.category);
+                            } catch(e) {} finally { setIsExtractingQueue(false); }
+                         }} className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20 transition-all border border-yellow-500/20 group">
+                           <Lightbulb className="w-3 h-3 fill-yellow-500 group-hover:scale-110 transition-transform" />
+                           <span className="text-[9px] font-black">AUTO SEO</span>
+                         </button>
+                       </label>
+                       <textarea value={metaInstructions} onChange={(e) => setMetaInstructions(e.target.value)} placeholder="e.g. Focus on vibrant colors, minimalist composition, commercial style..." className="w-full bg-slate-900/80 border border-slate-800 rounded-xl p-3 text-[10px] outline-none focus:ring-1 focus:ring-indigo-500/50 focus:border-indigo-500 h-20 resize-none transition-all placeholder:text-slate-700" />
+                    </div>
+
+                    <div className="space-y-2">
+                       <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Target Keywords</label>
+                       <textarea value={metaKeywords} onChange={(e) => setMetaKeywords(e.target.value)} placeholder="Enter specific keywords to prioritize (comma separated)..." className="w-full bg-slate-900/80 border border-slate-800 rounded-xl p-3 text-[10px] outline-none focus:ring-1 focus:ring-indigo-500/50 focus:border-indigo-500 h-20 resize-none transition-all placeholder:text-slate-700" />
+                    </div>
+
+                    <div className="space-y-2">
+                       <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center justify-between">
+                         <span>Category</span>
+                         <span className="text-[8px] text-slate-600 font-normal normal-case italic">Auto-detect if empty</span>
+                       </label>
+                       <textarea value={metaCategory} onChange={(e) => setMetaCategory(e.target.value)} placeholder="e.g. landscapes, people, technology..." className="w-full bg-slate-900/80 border border-slate-800 rounded-xl p-3 text-[10px] outline-none focus:ring-1 focus:ring-indigo-500/50 focus:border-indigo-500 h-12 resize-none transition-all placeholder:text-slate-700" />
+                       <p className="text-[8px] text-slate-600 leading-tight">
+                         Available: animal, building and architecture, business, drinks, environment, state of mind, food, graphic resources, hobbies, industry, landscapes, lifestyle, people, plants, religion, science, social, sport, technology, transport, travel.
+                       </p>
+                    </div>
+                  </div>
+
                   <div className="relative">
                     <input type="file" multiple onChange={handleAddMetaFiles} className="absolute inset-0 opacity-0 cursor-pointer z-10" accept="image/*,video/*,.eps,.ai,.psd" />
                     <button className="w-full py-3.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all border border-slate-700">
